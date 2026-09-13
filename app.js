@@ -1,6 +1,6 @@
 // ========================================
 // FINORIX PRO
-// REAL MARKET DATA
+// REAL MARKET DATA + 2 FUTURE PREDICTION CANDLES
 // Twelve Data -> Vercel API
 // ========================================
 
@@ -19,11 +19,12 @@ const canvas = document.getElementById("candleChart");
 const ctx = canvas.getContext("2d");
 
 let candles = [];
+let futureCandles = [];
 let lastPrice = null;
 
 
 // ========================================
-// Get Market Data From Vercel API
+// GET MARKET DATA
 // ========================================
 
 async function loadMarketData() {
@@ -49,7 +50,7 @@ async function loadMarketData() {
             throw new Error("No market data received");
         }
 
-        // Twelve Data returns newest candle first
+        // Twelve Data newest first -> reverse
         candles = data.values
             .slice()
             .reverse()
@@ -61,16 +62,24 @@ async function loadMarketData() {
             }));
 
 
-        // Current price
-        const latest = candles[candles.length - 1];
+        // ========================================
+        // CURRENT PRICE
+        // ========================================
 
-        const currentPrice = latest.close;
+        const latest =
+            candles[candles.length - 1];
+
+        const currentPrice =
+            latest.close;
 
         marketPrice.textContent =
             formatPrice(currentPrice);
 
 
-        // Price change
+        // ========================================
+        // PRICE CHANGE
+        // ========================================
+
         if (candles.length >= 2) {
 
             const previous =
@@ -83,14 +92,32 @@ async function loadMarketData() {
                 difference >= 0
                     ? "+" + formatPrice(difference)
                     : formatPrice(difference);
-
         }
 
 
         lastPrice = currentPrice;
 
-        marketStatus.textContent = "Connected";
-        systemStatus.textContent = "LIVE";
+
+        // ========================================
+        // CREATE 2 FUTURE PREDICTION CANDLES
+        // ========================================
+
+        futureCandles =
+            predictFutureCandles(candles);
+
+
+        // ========================================
+        // SIGNAL
+        // ========================================
+
+        calculateSignal(candles);
+
+
+        marketStatus.textContent =
+            "Connected";
+
+        systemStatus.textContent =
+            "LIVE";
 
         updateSignalTime();
 
@@ -100,51 +127,331 @@ async function loadMarketData() {
 
         console.error(error);
 
-        marketStatus.textContent = "Connection Error";
-        systemStatus.textContent = "ERROR";
+        marketStatus.textContent =
+            "Connection Error";
 
-        signal.textContent = "WAIT";
+        systemStatus.textContent =
+            "ERROR";
+
+        signal.textContent =
+            "WAIT";
+
         signalDescription.textContent =
             "Unable to receive market data.";
 
-        confidence.textContent = "--%";
+        confidence.textContent =
+            "--%";
     }
 }
 
 
 // ========================================
-// Format Price
+// FORMAT PRICE
 // ========================================
 
 function formatPrice(price) {
 
-    const number = Number(price);
+    const number =
+        Number(price);
 
     if (!Number.isFinite(number)) {
         return "--";
     }
 
-    // Forex usually needs 5 decimal places
     return number.toFixed(5);
 }
 
 
 // ========================================
-// Draw Candlestick Chart
+// PREDICT 2 FUTURE CANDLES
+// ========================================
+
+function predictFutureCandles(data) {
+
+    if (data.length < 5) {
+        return [];
+    }
+
+    const recent =
+        data.slice(-5);
+
+    let bullish = 0;
+    let bearish = 0;
+
+    recent.forEach(candle => {
+
+        if (candle.close > candle.open) {
+            bullish++;
+        }
+
+        if (candle.close < candle.open) {
+            bearish++;
+        }
+
+    });
+
+
+    const last =
+        data[data.length - 1];
+
+
+    // Average recent movement
+    let movement = 0;
+
+    recent.forEach(candle => {
+
+        movement +=
+            Math.abs(
+                candle.close - candle.open
+            );
+
+    });
+
+    movement =
+        movement / recent.length;
+
+
+    // Prevent movement from becoming zero
+    if (!movement || !Number.isFinite(movement)) {
+
+        movement =
+            Math.abs(
+                last.close * 0.0001
+            );
+    }
+
+
+    let direction;
+
+    if (bullish > bearish) {
+        direction = 1;
+    } else if (bearish > bullish) {
+        direction = -1;
+    } else {
+
+        // If equal, use latest candle
+        direction =
+            last.close >= last.open
+                ? 1
+                : -1;
+    }
+
+
+    const predictions = [];
+
+    let previousClose =
+        last.close;
+
+
+    // ========================================
+    // FUTURE CANDLE 1
+    // ========================================
+
+    const move1 =
+        movement * 0.8 * direction;
+
+    const close1 =
+        previousClose + move1;
+
+    const open1 =
+        previousClose;
+
+    const high1 =
+        Math.max(
+            open1,
+            close1
+        ) + movement * 0.25;
+
+    const low1 =
+        Math.min(
+            open1,
+            close1
+        ) - movement * 0.25;
+
+
+    predictions.push({
+
+        open: open1,
+        high: high1,
+        low: low1,
+        close: close1,
+
+        prediction: true
+    });
+
+
+    // ========================================
+    // FUTURE CANDLE 2
+    // ========================================
+
+    previousClose =
+        close1;
+
+
+    // Slightly reduce prediction distance
+    const move2 =
+        movement * 0.65 * direction;
+
+    const close2 =
+        previousClose + move2;
+
+    const open2 =
+        previousClose;
+
+    const high2 =
+        Math.max(
+            open2,
+            close2
+        ) + movement * 0.22;
+
+    const low2 =
+        Math.min(
+            open2,
+            close2
+        ) - movement * 0.22;
+
+
+    predictions.push({
+
+        open: open2,
+        high: high2,
+        low: low2,
+        close: close2,
+
+        prediction: true
+    });
+
+
+    return predictions;
+}
+
+
+// ========================================
+// SIGNAL CALCULATION
+// ========================================
+
+function calculateSignal(data) {
+
+    if (data.length < 5) {
+
+        signal.textContent =
+            "WAIT";
+
+        signalDescription.textContent =
+            "Analyzing market...";
+
+        confidence.textContent =
+            "--%";
+
+        return;
+    }
+
+
+    const recent =
+        data.slice(-5);
+
+    let bullish = 0;
+    let bearish = 0;
+
+
+    recent.forEach(candle => {
+
+        if (candle.close > candle.open) {
+            bullish++;
+        }
+
+        if (candle.close < candle.open) {
+            bearish++;
+        }
+
+    });
+
+
+    let result =
+        "WAIT";
+
+    let percent =
+        50;
+
+
+    if (bullish >= 4) {
+
+        result =
+            "BUY";
+
+        percent =
+            75;
+
+    } else if (bearish >= 4) {
+
+        result =
+            "SELL";
+
+        percent =
+            75;
+
+    } else if (bullish > bearish) {
+
+        result =
+            "BUY";
+
+        percent =
+            60;
+
+    } else if (bearish > bullish) {
+
+        result =
+            "SELL";
+
+        percent =
+            60;
+    }
+
+
+    signal.textContent =
+        result;
+
+    confidence.textContent =
+        percent + "%";
+
+
+    if (result === "BUY") {
+
+        signalDescription.textContent =
+            "Bullish momentum detected.";
+
+    } else if (result === "SELL") {
+
+        signalDescription.textContent =
+            "Bearish momentum detected.";
+
+    } else {
+
+        signalDescription.textContent =
+            "Market direction is unclear.";
+    }
+}
+
+
+// ========================================
+// DRAW CHART
 // ========================================
 
 function drawChart() {
 
-    const rect = canvas.getBoundingClientRect();
+    const rect =
+        canvas.getBoundingClientRect();
 
     const dpr =
         window.devicePixelRatio || 1;
+
 
     canvas.width =
         rect.width * dpr;
 
     canvas.height =
         rect.height * dpr;
+
 
     ctx.setTransform(
         dpr,
@@ -155,8 +462,13 @@ function drawChart() {
         0
     );
 
-    const width = rect.width;
-    const height = rect.height;
+
+    const width =
+        rect.width;
+
+    const height =
+        rect.height;
+
 
     ctx.clearRect(
         0,
@@ -165,7 +477,9 @@ function drawChart() {
         height
     );
 
-    ctx.fillStyle = "#0b1016";
+
+    ctx.fillStyle =
+        "#0b1016";
 
     ctx.fillRect(
         0,
@@ -180,12 +494,28 @@ function drawChart() {
     }
 
 
-    // Find price range
+    // ========================================
+    // COMBINE REAL + FUTURE CANDLES
+    // ========================================
 
-    let highest = -Infinity;
-    let lowest = Infinity;
+    const allCandles =
+        candles.concat(
+            futureCandles
+        );
 
-    candles.forEach(candle => {
+
+    // ========================================
+    // PRICE RANGE
+    // ========================================
+
+    let highest =
+        -Infinity;
+
+    let lowest =
+        Infinity;
+
+
+    allCandles.forEach(candle => {
 
         highest =
             Math.max(
@@ -202,29 +532,39 @@ function drawChart() {
     });
 
 
-    const padding = 25;
+    const padding =
+        25;
 
     const chartHeight =
         height - padding * 2;
 
+
     let range =
         highest - lowest;
+
 
     if (range === 0) {
         range = 0.00001;
     }
 
 
-    // Grid
+    // ========================================
+    // GRID
+    // ========================================
 
-    ctx.strokeStyle = "#18212b";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle =
+        "#18212b";
+
+    ctx.lineWidth =
+        1;
+
 
     for (let i = 0; i < 6; i++) {
 
         const y =
             padding +
             (chartHeight / 5) * i;
+
 
         ctx.beginPath();
 
@@ -242,10 +582,12 @@ function drawChart() {
     }
 
 
-    // Candle size
+    // ========================================
+    // CANDLE SIZE
+    // ========================================
 
     const gap =
-        width / candles.length;
+        width / allCandles.length;
 
     const candleWidth =
         Math.max(
@@ -254,7 +596,9 @@ function drawChart() {
         );
 
 
-    // Convert price to screen position
+    // ========================================
+    // PRICE TO Y
+    // ========================================
 
     function priceToY(price) {
 
@@ -266,91 +610,206 @@ function drawChart() {
             ) *
             chartHeight
         );
-
     }
 
 
-    // Draw candles
+    // ========================================
+    // DRAW CANDLES
+    // ========================================
 
-    candles.forEach((candle, index) => {
+    allCandles.forEach(
+        (candle, index) => {
 
-        const x =
-            index * gap +
-            gap / 2;
+            const x =
+                index * gap +
+                gap / 2;
 
-        const openY =
-            priceToY(candle.open);
 
-        const closeY =
-            priceToY(candle.close);
+            const openY =
+                priceToY(
+                    candle.open
+                );
 
-        const highY =
-            priceToY(candle.high);
+            const closeY =
+                priceToY(
+                    candle.close
+                );
 
-        const lowY =
-            priceToY(candle.low);
+            const highY =
+                priceToY(
+                    candle.high
+                );
 
-        const bullish =
-            candle.close >= candle.open;
+            const lowY =
+                priceToY(
+                    candle.low
+                );
+
+
+            const bullish =
+                candle.close >=
+                candle.open;
+
+
+            // Future candle style
+            if (candle.prediction) {
+
+                ctx.strokeStyle =
+                    bullish
+                        ? "#66ff99"
+                        : "#ff7b91";
+
+                ctx.fillStyle =
+                    bullish
+                        ? "#66ff99"
+                        : "#ff7b91";
+
+                // Dashed wick
+                ctx.setLineDash([
+                    4,
+                    3
+                ]);
+
+            } else {
+
+                ctx.strokeStyle =
+                    bullish
+                        ? "#25d366"
+                        : "#ff4d67";
+
+                ctx.fillStyle =
+                    bullish
+                        ? "#25d366"
+                        : "#ff4d67";
+
+                ctx.setLineDash([]);
+            }
+
+
+            // ========================================
+            // WICK
+            // ========================================
+
+            ctx.beginPath();
+
+            ctx.moveTo(
+                x,
+                highY
+            );
+
+            ctx.lineTo(
+                x,
+                lowY
+            );
+
+            ctx.stroke();
+
+
+            // ========================================
+            // BODY
+            // ========================================
+
+            ctx.setLineDash([]);
+
+
+            const bodyTop =
+                Math.min(
+                    openY,
+                    closeY
+                );
+
+            const bodyHeight =
+                Math.max(
+                    2,
+                    Math.abs(
+                        closeY - openY
+                    )
+                );
+
+
+            if (candle.prediction) {
+
+                // Outline prediction candle
+                ctx.strokeRect(
+                    x - candleWidth / 2,
+                    bodyTop,
+                    candleWidth,
+                    bodyHeight
+                );
+
+            } else {
+
+                // Real candle
+                ctx.fillRect(
+                    x - candleWidth / 2,
+                    bodyTop,
+                    candleWidth,
+                    bodyHeight
+                );
+            }
+
+        }
+    );
+
+
+    ctx.setLineDash([]);
+
+
+    // ========================================
+    // FUTURE AREA LABEL
+    // ========================================
+
+    if (futureCandles.length) {
+
+        const realCount =
+            candles.length;
+
+        const separatorX =
+            realCount * gap;
 
 
         ctx.strokeStyle =
-            bullish
-                ? "#25d366"
-                : "#ff4d67";
+            "#536170";
 
-        ctx.fillStyle =
-            bullish
-                ? "#25d366"
-                : "#ff4d67";
-
-
-        // Wick
+        ctx.setLineDash([
+            6,
+            5
+        ]);
 
         ctx.beginPath();
 
         ctx.moveTo(
-            x,
-            highY
+            separatorX,
+            padding
         );
 
         ctx.lineTo(
-            x,
-            lowY
+            separatorX,
+            height - padding
         );
 
         ctx.stroke();
 
+        ctx.setLineDash([]);
 
-        // Body
 
-        const bodyTop =
-            Math.min(
-                openY,
-                closeY
-            );
+        ctx.fillStyle =
+            "#9aa7b5";
 
-        const bodyHeight =
-            Math.max(
-                2,
-                Math.abs(
-                    closeY - openY
-                )
-            );
+        ctx.font =
+            "11px Arial";
 
-        ctx.fillRect(
-            x - candleWidth / 2,
-            bodyTop,
-            candleWidth,
-            bodyHeight
+        ctx.fillText(
+            "PREDICTION",
+            separatorX + 6,
+            padding + 12
         );
-
-    });
+    }
 }
 
 
 // ========================================
-// Market Change
+// MARKET CHANGE
 // ========================================
 
 marketSelect.addEventListener(
@@ -362,16 +821,22 @@ marketSelect.addEventListener(
                 marketSelect.selectedIndex
             ];
 
+
         currentMarket.textContent =
             selected.textContent;
 
+
         candles = [];
+
+        futureCandles = [];
+
 
         marketPrice.textContent =
             "--";
 
         priceChange.textContent =
             "--";
+
 
         signal.textContent =
             "WAIT";
@@ -382,6 +847,7 @@ marketSelect.addEventListener(
         confidence.textContent =
             "--%";
 
+
         drawChart();
 
         loadMarketData();
@@ -390,20 +856,32 @@ marketSelect.addEventListener(
 
 
 // ========================================
-// Signal Time
+// SIGNAL TIME
 // ========================================
 
 function updateSignalTime() {
 
-    const now = new Date();
+    const now =
+        new Date();
+
 
     const hours =
-        String(now.getHours())
-        .padStart(2, "0");
+        String(
+            now.getHours()
+        ).padStart(
+            2,
+            "0"
+        );
+
 
     const minutes =
-        String(now.getMinutes())
-        .padStart(2, "0");
+        String(
+            now.getMinutes()
+        ).padStart(
+            2,
+            "0"
+        );
+
 
     signalTime.textContent =
         `${hours}:${minutes}`;
@@ -411,7 +889,7 @@ function updateSignalTime() {
 
 
 // ========================================
-// Start
+// START
 // ========================================
 
 currentMarket.textContent =
@@ -419,13 +897,15 @@ currentMarket.textContent =
         marketSelect.selectedIndex
     ].textContent;
 
+
 updateSignalTime();
 
 loadMarketData();
 
 
-// Refresh every 60 seconds
-// because timeframe = 1 minute
+// ========================================
+// REFRESH EVERY 60 SECONDS
+// ========================================
 
 setInterval(
     loadMarketData,
@@ -433,7 +913,9 @@ setInterval(
 );
 
 
-// Redraw when screen changes
+// ========================================
+// REDRAW ON RESIZE
+// ========================================
 
 window.addEventListener(
     "resize",
@@ -442,5 +924,5 @@ window.addEventListener(
 
 
 console.log(
-    "Finorix Pro real market mode started."
+    "Finorix Pro real market + prediction mode started."
 );
