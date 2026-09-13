@@ -1,4 +1,5 @@
 export default async function handler(req, res) {
+
     const apiKey = process.env.TWELVE_DATA_API_KEY;
 
     if (!apiKey) {
@@ -7,7 +8,16 @@ export default async function handler(req, res) {
         });
     }
 
-    const symbol = req.query.symbol || "EUR/USD";
+    const rawSymbol =
+        req.query.symbol || "EURUSD";
+
+    // Convert EURUSD -> EUR/USD
+    const symbol =
+        rawSymbol.includes("/")
+            ? rawSymbol
+            : rawSymbol.slice(0, 3) +
+              "/" +
+              rawSymbol.slice(3);
 
     const url =
         `https://api.twelvedata.com/time_series` +
@@ -17,14 +27,22 @@ export default async function handler(req, res) {
         `&apikey=${apiKey}`;
 
     try {
-        const response = await fetch(url);
-        const data = await response.json();
 
-        return res.status(response.ok ? 200 : 500).json(data);
+        const response =
+            await fetch(url);
+
+        const data =
+            await response.json();
+
+        return res
+            .status(response.ok ? 200 : 500)
+            .json(data);
 
     } catch (error) {
+
         return res.status(500).json({
             error: "Market data request failed"
         });
+
     }
 }
